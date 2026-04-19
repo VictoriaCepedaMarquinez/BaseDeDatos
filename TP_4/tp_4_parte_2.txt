@@ -1,0 +1,200 @@
+/*TRABAJO PRACTICO 4 - PARTE 2*/
+
+/*EJERCICIO 1:*/
+
+/*Listar todas las películas que poseen entregas de películas de idioma inglés durante
+el año 2006. (P)*/
+
+select *
+from unc_esq_peliculas.pelicula p
+where p.idioma ilike '%ingles%' and  p.codigo_pelicula in
+                     (select re.codigo_pelicula
+                      from unc_esq_peliculas.renglon_entrega re
+                      where re.nro_entrega in
+                            (select e.nro_entrega
+                             from unc_esq_peliculas.entrega e
+                             where EXTRACT(YEAR FROM e.fecha_entrega) = 2006)
+                      );
+
+
+/*1.2. Indicar la cantidad de películas que han sido entregadas en 2006 por un distribuidor
+nacional. Trate de resolverlo utilizando ensambles.(P)*/
+
+select *
+from unc_esq_peliculas.pelicula p
+where p.codigo_pelicula in
+                     (select re.codigo_pelicula
+                      from unc_esq_peliculas.renglon_entrega re
+                      where re.nro_entrega in
+                            (select e.nro_entrega
+                             from unc_esq_peliculas.entrega e
+                             where EXTRACT(YEAR FROM e.fecha_entrega) = 2006 and
+                             e.id_distribuidor in
+                                   (select d.id_distribuidor
+                                    from unc_esq_peliculas.distribuidor d
+                                    where d.tipo ilike 'N'
+
+                                 ))
+                      );
+
+/*1.3. Indicar los departamentos que no posean empleados cuya diferencia de sueldo
+máximo y mínimo (asociado a la tarea que realiza) no supere el 40% del sueldo máximo.
+(P) (Probar con 10% para que retorne valores)*/
+
+select d.id_departamento, d.nombre
+from unc_esq_peliculas.departamento d
+where d.id_departamento not in (
+                            select e.id_departamento
+                            from unc_esq_peliculas.empleado e
+                            where e.id_tarea in (
+                                                 select t.id_tarea
+                                                 from unc_esq_peliculas.tarea t
+                                                 where (t.sueldo_maximo - t.sueldo_minimo) < (t.sueldo_maximo * 0.10)
+                                )
+                            and e.id_departamento is not null
+    );
+
+SELECT d.id_departamento, d.nombre
+FROM unc_esq_peliculas.departamento d
+WHERE d.id_departamento NOT IN (
+    SELECT e.id_departamento
+    FROM unc_esq_peliculas.empleado e
+    WHERE e.id_tarea IN (
+        SELECT t.id_tarea
+        FROM unc_esq_peliculas.tarea t
+        WHERE (t.sueldo_maximo - t.sueldo_minimo) <= (t.sueldo_maximo * 0)
+    )
+    AND e.id_departamento IS NOT NULL -- Buena práctica para que el NOT IN no falle
+);
+
+/*1.4. Liste las películas que nunca han sido entregadas por un distribuidor nacional.(P)*/
+
+select p.codigo_pelicula, p.titulo
+from unc_esq_peliculas.pelicula p
+where p.codigo_pelicula not in (select e.codigo_pelicula
+                            from unc_esq_peliculas.renglon_entrega e
+                            where e.nro_entrega in (
+                                select pe.nro_entrega
+                                from unc_esq_peliculas.entrega pe
+                                where pe.id_distribuidor in (
+                                    select dis.id_distribuidor
+                                    from unc_esq_peliculas.distribuidor dis
+                                    where tipo = 'N'
+                                    )
+                            and e.codigo_pelicula is not null /*importante filtrar los no nulos en la primer subconsulta */
+
+                                )
+
+                            );
+
+/*1.5. Determinar los jefes que poseen personal a cargo y cuyos departamentos (los del
+jefe) se encuentren en la Argentina.*/
+SELECT emp.id_empleado, emp.nombre
+FROM unc_esq_peliculas.empleado emp
+WHERE emp.id_empleado IN (SELECT id_jefe FROM unc_esq_peliculas.empleado) -- 1. Es jefe
+  AND emp.id_departamento IN ( -- 2. Su departamento está en Argentina
+      SELECT dep.id_departamento  -- <--- CAMBIO AQUÍ: Pedimos el ID del depto
+      FROM unc_esq_peliculas.departamento dep
+      WHERE dep.id_ciudad IN (
+          SELECT c.id_ciudad
+          FROM unc_esq_peliculas.ciudad c
+          WHERE c.id_pais IN (
+              SELECT p.id_pais
+              FROM unc_esq_peliculas.pais p
+              WHERE p.nombre_pais ILIKE 'Argentina'
+          )
+      )
+  );
+
+/*1.6. Liste el apellido y nombre de los empleados que pertenecen a aquellos
+departamentos de Argentina y donde el jefe de departamento posee una comisión de más
+del 10% de la que posee su empleado a cargo.*/
+
+SELECT emp.apellido, emp.nombre
+FROM unc_esq_peliculas.empleado emp
+WHERE emp.id_empleado IN (
+    -- Buscamos empleados que son jefes de alguien que gana poco
+    SELECT e_sub.id_jefe
+    FROM unc_esq_peliculas.empleado e_sub
+    WHERE emp.porc_comision > (e_sub.porc_comision * 1.10)
+)
+  AND emp.id_departamento IN ( -- 2. Su departamento está en Argentina
+      SELECT dep.id_departamento  -- <--- CAMBIO AQUÍ: Pedimos el ID del depto
+      FROM unc_esq_peliculas.departamento dep
+      WHERE dep.id_ciudad IN (
+          SELECT c.id_ciudad
+          FROM unc_esq_peliculas.ciudad c
+          WHERE c.id_pais IN (
+              SELECT p.id_pais
+              FROM unc_esq_peliculas.pais p
+              WHERE p.nombre_pais ILIKE 'Argentina'
+          )
+      )
+  );
+
+/*1.7. Indicar la cantidad de películas entregadas a partir del 2010, por género.*/
+
+select p.genero, count(p.genero) as cantidad
+from unc_esq_peliculas.pelicula p
+where p.codigo_pelicula in(
+               select re.codigo_pelicula
+               from unc_esq_peliculas.renglon_entrega re
+               where re.nro_entrega in (
+                   select e.nro_entrega
+                   from unc_esq_peliculas.entrega e
+                   where EXTRACT(YEAR FROM e.fecha_entrega) >= 2010
+                   )
+)
+group by p.genero
+
+/*1.8. Realizar un resumen de entregas por día, indicando el video club al cual se le
+realizó la entrega y la cantidad entregada. Ordenar el resultado por fecha.*/
+
+select v.propietario,e.fecha_entrega, count(e.nro_entrega) as cantidad
+from entrega e
+join video v
+on e.id_video = v.id_video
+group by  v.propietario, e.fecha_entrega
+order by e.fecha_entrega
+
+/*1.9. Listar, para cada ciudad, el nombre de la ciudad y la cantidad de empleados
+mayores de edad que desempeñan tareas en departamentos de la misma y que posean al
+menos 30 empleados.*/
+
+SELECT c.nombre_ciudad, count(e.id_empleado) cant_empleados
+FROM ciudad c JOIN departamento d
+ON c.id_ciudad = d.id_ciudad JOIN empleado e
+ON d.id_departamento = e.id_departamento
+AND d.id_distribuidor =e.id_distribuidor JOIN tarea t
+ON e.id_tarea = t.id_tarea
+WHERE extract(YEAR FROM AGE(e.fecha_nacimiento)) >= 18
+GROUP BY c.nombre_ciudad
+HAVING count(e.id_empleado) > 30
+
+/*EJERCICIO 2:*/
+
+/*2.1. Muestre, para cada institución, su nombre y la cantidad de voluntarios que realizan
+aportes. Ordene el resultado por nombre de institución.*/
+
+SELECT i.nombre_institucion, count(v.nro_voluntario) as cant_voluntarios
+FROM institucion i JOIN voluntario v
+ON i.id_institucion = v.id_institucion
+WHERE v.horas_aportadas IS NOT NULL
+GROUP BY i.nombre_institucion
+ORDER BY  i.nombre_institucion
+
+/*2.2. Determine la cantidad de coordinadores en cada país, agrupados por nombre de
+país y nombre de continente. Etiquete la primer columna como &#39;Número de coordinadores&#39;*/
+
+select count(v.id_coordinador) as "Número de coordinadores",
+       p.nombre_pais,
+       c.nombre_continente
+from voluntario v
+join institucion i on v.id_institucion = i.id_institucion
+join direccion d on i.id_direccion = d.id_direccion
+join pais p on d.id_pais = p.id_pais
+join continente c on p.id_continente = c.id_continente
+group by p.nombre_pais, c.nombre_continente
+
+/*2.3. Escriba una consulta para mostrar el apellido, nombre y fecha de nacimiento de cualquier voluntario que trabaje en la misma institución que el Sr. de apellido Zlotkey.
+Excluya del resultado a Zlotkey.*/
