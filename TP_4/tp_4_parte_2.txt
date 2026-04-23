@@ -198,3 +198,32 @@ group by p.nombre_pais, c.nombre_continente
 
 /*2.3. Escriba una consulta para mostrar el apellido, nombre y fecha de nacimiento de cualquier voluntario que trabaje en la misma institución que el Sr. de apellido Zlotkey.
 Excluya del resultado a Zlotkey.*/
+
+SELECT v.nombre, v.apellido, v.fecha_nacimiento
+FROM voluntario v
+WHERE v.id_institucion IN (
+    -- Ahora preguntamos a la tabla correcta
+    SELECT v2.id_institucion
+    FROM voluntario v2
+    WHERE v2.apellido ILIKE 'Zlotkey'
+)
+AND v.apellido NOT ILIKE 'Zlotkey'; -- Excluimos al propio Zlotkey
+
+SELECT nombre, apellido, fecha_nacimiento
+FROM voluntario
+WHERE id_institucion IN (
+    SELECT id_institucion
+    FROM voluntario
+    WHERE apellido = 'Zlotkey'
+)
+AND apellido <> 'Zlotkey';
+
+/*2.4. Cree una consulta para mostrar los números de voluntarios y los apellidos de todos
+los voluntarios cuya cantidad de horas aportadas sea mayor que la media de las horas
+aportadas. Ordene los resultados por horas aportadas en orden ascendente.*/
+
+SELECT nro_voluntario, apellido
+FROM voluntario
+WHERE horas_aportadas > (SELECT AVG(horas_aportadas) FROM voluntario)
+ORDER BY horas_aportadas ASC;
+
