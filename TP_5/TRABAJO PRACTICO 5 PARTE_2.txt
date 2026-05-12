@@ -1,0 +1,120 @@
+/*                     Restricciones de Integridad: Domain, check y assertions
+
+Ejercicio 1
+
+A. No puede haber voluntarios de más de 70 años. Aquí como la edad es un dato que
+depende de la fecha actual lo deberíamos controlar de otra manera.
+A.Bis - Controlar que los voluntarios deben ser mayores a 18 años.*/
+
+alter table voluntario
+add constraint edad_valida
+check (EXTRACT(YEAR FROM AGE(CURRENT_DATE, fecha_nacimiento)) >= 18 and EXTRACT(YEAR FROM AGE(CURRENT_DATE, fecha_nacimiento)) <= 70);
+
+/*B. Ningún voluntario puede aportar más horas que las de su coordinador.*/
+
+create assertion horas_validas
+       check(not exists (select 1
+                         from voluntario v
+                         where v.horas_aportadas > (select c.horas_aportadas
+                                                     from voluntario c
+                                                     where c.nro_voluntario = v.id_coordinador)
+                        )
+       ;)
+
+/*C. Las horas aportadas por los voluntarios deben estar dentro de los valores máximos y
+mínimos consignados en la tarea.*/
+
+
+create assertion valores_horas_validas
+       check (not exists (select 1
+                          from voluntario v
+                          join tarea t using id_tarea
+                          where v.horas_aportadas not between t.min_horas and t.max_horas)
+       );
+
+
+/*D. Todos los voluntarios deben realizar la misma tarea que su coordinador.*/
+
+create assertion misama_tarea
+       check (not exists (select 1
+                          from voluntario v
+                          join voluntario c on v.id_coordinador = c.id_voluntario
+                          where v.id_tarea != c.id_tarea)
+             );
+
+/*E. Los voluntarios no pueden cambiar de institución más de tres veces al año.*/
+
+
+CREATE ASSERTION chk_cambios_institucion
+CHECK (
+    NOT EXISTS (
+        SELECT nro_voluntario, EXTRACT(YEAR FROM fecha_inicio) as anio
+        FROM ESQ_VOL_HISTORICO
+        GROUP BY nro_voluntario, EXTRACT(YEAR FROM fecha_inicio)
+        HAVING COUNT(DISTINCT id_institucion) > 3
+    )
+);
+
+
+
+/*F. En el histórico, la fecha de inicio debe ser siempre menor que la fecha de finalización.*/
+alter table historico
+add constraint fecha_valida
+check (where h.fecha_inicio < h.fecha_fin)
+
+
+/*  Ejercicio 2
+
+   A. Para cada tarea el sueldo máximo debe ser mayor que el sueldo mínimo.
+*/
+
+alter table tarea
+add constraint sueldo_valido
+check (sueldo_maximo > sueldo_minimo);
+
+
+/*B. No puede haber más de 70 empleados en cada departamento.*/
+CREATE ASSERTION limite_empleados_depto
+CHECK (
+    NOT EXISTS (
+        SELECT 1
+        FROM empleado
+        GROUP BY id_departamento
+        HAVING COUNT(*) > 70
+    )
+);
+
+/*C. Los empleados deben tener jefes que pertenezcan al mismo departamento.*/
+
+create assertion mismo_depto
+check(not exists( select 1
+                  from empleado e
+                  join empleado j on e.id_jefe = j.id_empleado
+                  where j.id_departamento <> e. id_departamento
+                )
+       );
+
+
+ /*D. Todas las entregas, tienen que ser de películas de un mismo idioma.*/
+
+CREATE ASSERTION entrega_mismo_idioma
+CHECK (
+    NOT EXISTS (
+        SELECT r.nro_entrega
+        FROM ESQ_PEL_RENGLON_ENTREGA r
+        JOIN ESQ_PEL_PELICULA p ON r.codigo_pelicula = p.codigo_pelicula
+        GROUP BY r.nro_entrega
+        HAVING COUNT(DISTINCT p.idioma) > 1
+    )
+);
+
+
+/*E. No pueden haber más de 10 empresas productoras por ciudad.*/
+
+CREATE ASSERTION limite_emp_productoras
+CHECK (NOT EXISTS (
+    SELECT 1
+    FROM ESQ_PEL_EMPRESA_PRODUCTORA
+    GROUP BY id_ciudad
+    HAVING COUNT(codigo_productora) > 10
+));
