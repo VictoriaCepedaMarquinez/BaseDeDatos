@@ -1,0 +1,281 @@
+/*TRIGGERS
+
+Ejercicio 1
+
+Implemente de manera procedural las restricciones que no pudo realizar de manera declarativa en
+el ejercicio 3 del Práctico 5 Parte 2;*/
+
+--D. Sólo los autores argentinos pueden publicar artículos que contengan más de
+-- 10 palabras claves, pero con un tope de 15 palabras, el resto de los autores
+-- sólo pueden publicar artículos que contengan hasta 10 palabras claves.
+-- TIPO - general
+/*
+CREATE ASSERTION CK_CANTIDAD_PALABRAS
+   CHECK (NOT EXISTS (
+            SELECT 1
+            FROM p5p2e3_articulo
+            WHERE (nacionalidad LIKE 'Argentina' AND
+                  id_articulo IN (SELECT id_articulo
+                                  FROM p5p2e3_contiene
+                                  GROUP BY id_articulo
+                                    HAVING COUNT(*) > 15) ) OR
+                  (nacionalidad NOT LIKE 'Argentina' AND
+                  id_articulo IN (SELECT id_articulo
+                                  FROM p5p2e3_contiene
+                                  GROUP BY id_articulo
+                                    HAVING COUNT(*) > 10) )))
+;
+*/
+
+CREATE OR REPLACE FUNCTION fun_maximo_pl_claves()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_nacionalidad VARCHAR(15);
+    v_cantidad INT;
+BEGIN
+    -- 1. Obtenemos la nacionalidad del autor del artículo
+    SELECT nacionalidad INTO v_nacionalidad
+    FROM P5P2E3_ARTICULO
+    WHERE id_articulo = NEW.id_articulo;
+
+    -- 2. Contamos cuántas palabras tiene ya el artículo en CONTIENE
+    SELECT COUNT(*) INTO v_cantidad
+    FROM P5P2E3_CONTIENE
+    WHERE id_articulo = NEW.id_articulo;
+
+    -- 3. Aplicamos la lógica de rangos
+    IF v_nacionalidad ILIKE 'Argentina' THEN
+        -- El error salta si ya tiene 15 e intentas meter la 16.
+        -- (Opcional: si la regla dice que DEBEN tener más de 10, eso se suele
+        -- controlar al final de la carga, pero el "tope" se controla aquí).
+        IF v_cantidad >= 15 THEN
+            RAISE EXCEPTION 'Autores argentinos: el tope es de 15 palabras clave.';
+        END IF;
+    ELSE
+        -- Para el resto, el error salta si ya tiene 10 e intentas meter la 11.
+        IF v_cantidad >= 10 THEN
+            RAISE EXCEPTION 'Otros autores: el tope es de 10 palabras clave.';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE 'plpgsql';
+
+/*CREATE ASSERTION ck_cantpalabra_articulo
+CHECK (NOT EXISTS (
+    SELECT 1
+    FROM p5p2e3_contiene
+    GROUP BY idioma, cod_palabra
+    HAVING COUNT(*) > 5
+));*/
+
+
+create or replace function fn_cant_palabras_validas()
+returns trigger as $$
+declare
+ cantidad int;
+begin
+        select count (*) into cantidad
+        from contiene c
+        where c.idioma = new.idioma and
+              c.cod_palabra = new.cod_palabra;
+
+        if cantidad >= 5 then
+            raise exception 'la palabra % supero el limite',
+            new.cod_palabra;
+        end if;
+        return new;
+
+    end$$
+    language 'plpgsql';
+
+create trigger tr_cant_palabras_validas
+before insert or update of cod_palabra, idioma
+on contiene
+for each row
+execute procedure fn_cant_palabras_validas();
+
+
+/*
+
+Ejercicio2
+
+
+-- B. Cada imagen de cada paciente no debe tener más de 5 procesamientos.
+-- TIPO TABLA
+
+ALTER TABLE p5p2e4_procesamiento
+   ADD CONSTRAINT CK_CANTIDAD_PROCESAMIENTOS
+   CHECK ( NOT EXISTS (
+            SELECT 1
+            FROM p5p2e4_procesamiento
+            GROUP BY id_paciente, id_imagen
+            HAVING COUNT(*) > 5
+       ))
+;
+*/
+
+create or replace function fn_cant_procedimintos_validos()
+returns trigger as $$
+    declare
+        cantidad int;
+    begin
+        select count (*) into cantidad
+        from procesamiento p
+        where p.id_paciente = new.id_paciente and
+              p.id_imagen = new.id_imagen;
+
+        if cantidad >= 5 then
+            raise exception 'Error: El paciente % ya tiene el máximo de 5 procesamientos para la imagen %',
+         new.id_paciente, new.id_imagen;
+            end if;
+        return new;
+    end$$
+    language 'plpgsql';
+
+create trigger tr_cant_procedimientos_validos
+before insert or update of id_paciente, id_imagen
+on procedimiento
+for each row execute procedure fn_cant_procedimintos_validos();
+
+-- C. Agregue dos atributos de tipo fecha a las tablas Imagen_medica y Procesamiento,
+-- una indica la fecha de la imagen y la otra la fecha de procesamiento de la imagen
+-- y controle que la segunda no sea menor que la primera.
+--TIPO GENERAL
+/*
+ALTER TABLE p5p2e4_imagen_medica
+ADD COLUMN fecha_img date;
+
+ALTER TABLE p5p2e4_procesamiento
+ADD COLUMN fecha_proc date;
+
+
+CREATE ASSERTION
+   CHECK ( NOT EXISTS (
+            select 1
+            FROM p5p2e4_imagen_medica i JOIN p5p2e4_procesamiento p
+            ON (i.id_paciente = p.id_paciente and i.id_imagen = p.id_imagen)
+            WHERE fecha_proc < fecha_img )
+   )
+;
+
+*/
+
+CREATE OR REPLACE FUNCTION fn_fecha_valida()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_fecha_img DATE; -- Variable para guardar la fecha que traeremos de la otra tabla
+BEGIN
+    -- 1. Buscamos la fecha de la imagen médica relacionada
+    SELECT fecha_img INTO v_fecha_img
+    FROM P5P2E4_IMAGEN_MEDICA
+    WHERE id_paciente = NEW.id_paciente
+      AND id_imagen = NEW.id_imagen;
+
+    -- 2. Ahora sí comparamos la fecha de la tabla con la que está entrando (NEW)
+    IF NEW.fecha_proc < v_fecha_img THEN
+        RAISE EXCEPTION 'La fecha de procesamiento (%) no puede ser anterior a la de la imagen (%)',
+            NEW.fecha_proc, v_fecha_img;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE 'plpgsql';
+
+CREATE TRIGGER tr_fecha_valida
+BEFORE INSERT OR UPDATE OF fecha_proc
+ON P5P2E4_PROCESAMIENTO
+FOR EACH ROW
+EXECUTE FUNCTION fn_fecha_valida();
+
+/*-- D. Sólo se pueden realizar dos FLUOROSCOPIA anuales por paciente
+--  TIPO TABLA.
+/*
+   CREATE ASSERTION
+   CHECK ( NOT EXISTS (
+                SELECT 1
+                FROM p5p2e4_imagen_medica
+                WHERE modalidad = 'FLUOROSCOPIA'
+                GROUP BY id_paciente, extract(year from fecha_img)
+                HAVING COUNT(*) > 2 ))
+;
+
+*/*/
+
+CREATE OR REPLACE FUNCTION fn_fluoroscopias_validas()
+RETURNS TRIGGER AS $$
+DECLARE
+    cantidad INT;
+BEGIN
+    -- 1. Verificamos si el registro que se intenta ingresar es una FLUOROSCOPIA
+    IF NEW.modalidad = 'FLUOROSCOPIA' THEN
+
+        -- 2. Contamos cuántas fluoroscopias tiene YA este paciente.
+        -- Como la tabla no tiene fecha, contamos el total histórico que tiene acumulado.
+        SELECT COUNT(*) INTO cantidad
+        FROM P5P2E4_IMAGEN_MEDICA
+        WHERE id_paciente = NEW.id_paciente
+          AND modalidad = 'FLUOROSCOPIA';
+
+        -- 3. Si ya tiene 2 o más, bloqueamos la inserción
+        IF cantidad >= 2 THEN
+            RAISE EXCEPTION 'El paciente ya superó el límite de dos FLUOROSCOPIAS anuales.';
+        END IF;
+
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Definición del Trigger
+CREATE TRIGGER tr_fluoroscopias_validas
+BEFORE INSERT OR UPDATE OF id_paciente, modalidad
+ON P5P2E4_IMAGEN_MEDICA
+FOR EACH ROW
+EXECUTE FUNCTION fn_fluoroscopias_validas();
+
+/*--E. No se pueden aplicar algoritmos de costo computacional “O(n)” a imágenes de FLUOROSCOPIA
+-- TIPO - GENERAL
+/*
+CREATE ASSERTION
+   CHECK ( NOT EXISTS (
+                SELECT 1
+                FROM p5p2e4_imagen_medica i JOIN p5p2e4_procesamiento p ON
+                    (i.id_paciente = p.id_paciente AND i.id_imagen = p.id_imagen)
+                    JOIN p5p2e4_algoritmo a ON ( p.id_algoritmo = a.id_algoritmo )
+                WHERE modalidad = 'FLUOROSCOPIA' AND
+                    costo_computacional = 'O(n)'
+));
+*/*/
+
+create or replace function fn_algoritmo_valido()
+returns trigger as $$
+    declare
+        modalidad varchar(80);
+        costo_computacional varchar(15);
+    begin
+        select i.modalidad into modalidad
+        from p5p2e4_imagen_medica i
+        where i.id_imagen = new.id_imagen
+        and i.id_paciente = new.id_paciente;
+
+        select a.costo_computacional into costo_computacional
+        from p5p2e4_algoritmo a
+        where a.id_algoritmo = new.id_algoritmo;
+
+        if (modalidad = 'fluoroscopia' and costo_computacional = 'O(n)') then
+            raise exception 'No se pueden aplicar algoritmos de costo computacional “O(n)” a imágenes de FLUOROSCOPIA';
+        end if;
+
+return new;
+end$$
+language 'plpgsql';
+
+create trigger tr_algoritmo_valido
+before insert or update of id_imagen,id_paciente, id_algoritmo
+on p5p2e4_procesamiento
+for each row execute procedure fn_algoritmo_valido();
+
+
