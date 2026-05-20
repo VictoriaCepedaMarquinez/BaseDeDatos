@@ -1,6 +1,4 @@
-/*TRIGGERS
-
-Ejercicio 1
+/*Ejercicio 1
 
 Implemente de manera procedural las restricciones que no pudo realizar de manera declarativa en
 el ejercicio 3 del Práctico 5 Parte 2;*/
@@ -278,4 +276,68 @@ before insert or update of id_imagen,id_paciente, id_algoritmo
 on p5p2e4_procesamiento
 for each row execute procedure fn_algoritmo_valido();
 
+/*
+Ejercicio 3*
+
+B. Los descuentos realizados en fechas de liquidación deben superar el 30%.
+
+ */
+
+CREATE OR REPLACE FUNCTION fn_ventas_con_decuentos_fecha_validas()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_dia_venta INT;
+    v_mes_venta INT;
+    v_existe_liquidacion BOOLEAN;
+BEGIN
+    -- 1. Extraemos el día y el mes directamente del registro NEW que se intenta insertar/modificar
+    v_dia_venta := EXTRACT(DAY FROM NEW.fecha);
+    v_mes_venta := EXTRACT(MONTH FROM NEW.fecha);
+
+    -- 2. Verificamos si esa combinación de día y mes existe en las fechas de liquidación
+    SELECT EXISTS (
+        SELECT 1
+        FROM P5P1E5_FECHA_LIQ fl
+        WHERE fl.dia_liq = v_dia_venta
+          AND fl.mes_liq = v_mes_venta
+    ) INTO v_existe_liquidacion;
+
+    -- 3. Si es fecha de liquidación, validamos que el descuento sea estrictamente mayor al 30%
+    -- Nota: Asumo que el descuento se guarda como porcentaje (ej: 30.00). Si se guarda como fracción (ej: 0.30), cambiá 30 por 0.30
+    IF v_existe_liquidacion AND NEW.descuento <= 30 THEN
+        RAISE EXCEPTION 'Los descuentos realizados en fechas de liquidación deben superar el 30%.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tr_ventas_con_decuentos_fecha_validas
+BEFORE INSERT OR UPDATE
+ON P5P1E5_VENTA
+FOR EACH ROW
+EXECUTE FUNCTION fn_ventas_con_decuentos_fecha_validas();
+
+/* D. Las prendas de categoría ‘oferta’ no tienen descuentos.*/
+create or replace function  fn_prendas_sin_descuentos()
+returns trigger as $$
+    declare
+        categoria varchar(80);
+    begin
+        select p.categoria into categoria
+        from prenda
+        where p.id_prenda = new.id_prenda;
+
+        if new.descuento > 0 and categoria = 'oferta' then
+        raise exception 'Las prendas de categoría ‘oferta’ no deben tener descuentos';
+        end if;
+    return new;
+    end$$
+    language 'plpgsql';
+
+create trigger tr_prendas_sin_descuentos
+before insert or update of id_prenda, descuento
+on venta
+for each row
+execute function fn_prendas_sin_descuentos();
 
